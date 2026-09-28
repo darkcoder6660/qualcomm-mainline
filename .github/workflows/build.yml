@@ -1,0 +1,63 @@
+name: Build Mainline Kernel (Caihong)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - caihong
+
+jobs:
+  build-kernel:
+    name: Compile Mainline Linux
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          ref: caihong 
+          
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            make ccache kmod cpio xz-utils device-tree-compiler
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-kernel-ccache
+          max-size: 2G
+
+      - name: Prepare Config
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # Using the specific defconfig noted in the commit log
+          make O=out caihong_defconfig 
+
+      - name: Compile Kernel
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE="ccache aarch64-linux-gnu-"
+          
+          # Build the kernel Image and DTBs
+          make O=out -j$(nproc --all) Image.gz dtbs modules
+          
+      - name: Organize Artifacts
+        run: |
+          mkdir -p build-artifacts
+          cp out/arch/arm64/boot/Image.gz build-artifacts/
+          
+          # Target the exact device tree blob for the OnePlus Pad 2
+          cp out/arch/arm64/boot/dts/qcom/sm8650-oneplus-caihong.dtb build-artifacts/
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: caihong-kernel-artifacts
+          path: build-artifacts/
+          compression-level: 9
